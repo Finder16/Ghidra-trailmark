@@ -1,0 +1,291 @@
+# Trailmark
+
+[![CI](https://github.com/trailofbits/trailmark/actions/workflows/ci.yml/badge.svg)](https://github.com/trailofbits/trailmark/actions/workflows/ci.yml)
+[![Mutation Testing](https://github.com/trailofbits/trailmark/actions/workflows/mutation.yml/badge.svg)](https://github.com/trailofbits/trailmark/actions/workflows/mutation.yml)
+
+Parse source code into queryable graphs of functions, classes, calls, and semantic annotations for security analysis.
+
+Trailmark uses [tree-sitter](https://tree-sitter.github.io/) for language-agnostic AST parsing and [rustworkx](https://www.rustworkx.org/) for high-performance graph traversal. The long-term vision is to combine this graph with mutation testing and coverage-guided fuzzing to identify gaps between assumptions and test coverage that are reachable from user input.
+
+## How It Works
+
+Trailmark operates in three phases: **parse**, **index**, and **query**.
+
+```mermaid
+flowchart TD
+    A["Source Files"] --> B["tree-sitter Parser"]
+    B --> C["CodeGraph (nodes + edges)"]
+    C --> D["rustworkx GraphStore"]
+    D --> E["QueryEngine"]
+    E --> F["JSON / Summary / Hotspots"]
+
+    classDef src fill:#007bff26,stroke:#007bff,color:#007bff
+    classDef parse fill:#28a74526,stroke:#28a745,color:#28a745
+    classDef data fill:#6f42c126,stroke:#6f42c1,color:#6f42c1
+    classDef query fill:#ffc10726,stroke:#e6a817,color:#e6a817
+
+    class A src
+    class B parse
+    class C,D data
+    class E,F query
+```
+
+### 1. Parse
+
+A language-specific parser walks the directory, parses each file into a tree-sitter AST, and extracts:
+
+- **Nodes** &mdash; functions, methods, classes, structs, interfaces, traits, enums, modules, namespaces
+- **Edges** &mdash; calls, inheritance, implementation, containment, imports
+- **Metadata** &mdash; type annotations, cyclomatic complexity, branches, docstrings, exception types
+
+### Supported Languages
+
+| Language | Extensions | Key constructs |
+| --- | --- | --- |
+| Python | `.py` | functions, classes, methods |
+| JavaScript | `.js`, `.jsx` | functions, classes, arrow functions |
+| TypeScript | `.ts`, `.tsx` | functions, classes, interfaces, enums |
+| PHP | `.php` | functions, classes, interfaces, traits |
+| Ruby | `.rb` | methods, classes, modules |
+| C | `.c`, `.h` | functions, structs, enums |
+| C++ | `.cpp`, `.hpp`, `.cc`, `.hh`, `.cxx`, `.hxx` | functions, classes, structs, namespaces |
+| C# | `.cs` | methods, classes, interfaces, structs, enums, namespaces |
+| Java | `.java` | methods, classes, interfaces, enums |
+| Go | `.go` | functions, methods, structs, interfaces |
+| Rust | `.rs` | functions, structs, traits, enums, impl blocks |
+| Solidity | `.sol` | contracts, interfaces, libraries, functions, modifiers, structs, enums |
+| Cairo | `.cairo` | functions, traits, structs, enums, impl blocks, StarkNet contracts |
+| Circom | `.circom` | templates, functions, signals, components |
+| Haskell | `.hs` | functions, data types, type classes, instances |
+| Erlang | `.erl` | functions, records, behaviours, modules |
+
+```mermaid
+flowchart TD
+    subgraph "Per-File Parsing"
+        F["Source file"] --> TS["tree-sitter AST"]
+        TS --> EX["Extract nodes"]
+        TS --> EC["Extract call edges"]
+        TS --> EB["Count branches"]
+        TS --> ET["Resolve types"]
+    end
+
+    EX --> CG["CodeGraph"]
+    EC --> CG
+    EB --> CG
+    ET --> CG
+
+    classDef src fill:#007bff26,stroke:#007bff,color:#007bff
+    classDef parse fill:#28a74526,stroke:#28a745,color:#28a745
+    classDef extract fill:#ffc10726,stroke:#e6a817,color:#e6a817
+    classDef data fill:#6f42c126,stroke:#6f42c1,color:#6f42c1
+
+    class F src
+    class TS parse
+    class EX,EC,EB,ET extract
+    class CG data
+```
+
+Node IDs follow the scheme `module:function`, `module:Class`, or `module:Class.method` for unambiguous lookup. Edge confidence is tagged as `certain` (direct calls, `self.method()`), `inferred` (attribute access on non-self objects), or `uncertain` (dynamic dispatch).
+
+### 2. Index
+
+The `GraphStore` loads the `CodeGraph` into a rustworkx `PyDiGraph` and builds bidirectional ID/index mappings for fast traversal.
+
+### 3. Query
+
+The `QueryEngine` provides a high-level API over the indexed graph:
+
+| Method | Description |
+|---|---|
+| `callers_of(name)` | All functions that call the named target |
+| `callees_of(name)` | All functions called by the named source |
+| `paths_between(src, dst)` | All simple call paths between two nodes |
+| `attack_surface()` | Entrypoints tagged with trust level and asset value |
+| `complexity_hotspots(n)` | Functions with cyclomatic complexity &ge; n |
+| `annotate(name, kind, desc, source)` | Add a semantic annotation to a node |
+| `annotations_of(name, kind=None)` | Get annotations for a node, optionally filtered by kind |
+| `clear_annotations(name, kind=None)` | Remove annotations from a node |
+| `summary()` | Node counts, edge counts, dependencies |
+| `to_json()` | Full graph export |
+
+### Data Model
+
+```mermaid
+classDiagram
+    class CodeGraph {
+        language: str
+        root_path: str
+        nodes: dict[str, CodeUnit]
+        edges: list[CodeEdge]
+        annotations: dict[str, list[Annotation]]
+        entrypoints: dict[str, EntrypointTag]
+        dependencies: list[str]
+        add_annotation(node_id, annotation)
+        clear_annotations(node_id, kind=None)
+        merge(other)
+    }
+
+    class CodeUnit {
+        id: str
+        name: str
+        kind: NodeKind
+        location: SourceLocation
+        parameters: tuple[Parameter]
+        return_type: TypeRef
+        exception_types: tuple[TypeRef]
+        cyclomatic_complexity: int
+        branches: tuple[BranchInfo]
+        docstring: str
+    }
+
+    class CodeEdge {
+        source_id: str
+        target_id: str
+        kind: EdgeKind
+        confidence: EdgeConfidence
+    }
+
+    class Annotation {
+        kind: AnnotationKind
+        description: str
+        source: str
+    }
+
+    class EntrypointTag {
+        kind: EntrypointKind
+        trust_level: TrustLevel
+        description: str
+        asset_value: AssetValue
+    }
+
+    CodeGraph "1" *-- "*" CodeUnit
+    CodeGraph "1" *-- "*" CodeEdge
+    CodeGraph "1" *-- "*" Annotation
+    CodeGraph "1" *-- "*" EntrypointTag
+```
+
+**Node kinds:** `function`, `method`, `class`, `module`, `struct`, `interface`, `trait`, `enum`, `namespace`, `contract`, `library`
+
+**Edge kinds:** `calls`, `inherits`, `implements`, `contains`, `imports`
+
+**Edge confidence:** `certain`, `inferred`, `uncertain`
+
+### Example Graph
+
+Given this Python code:
+
+```python
+class Auth:
+    def verify(self, token: str) -> bool:
+        return self._check_sig(token)
+
+    def _check_sig(self, token: str) -> bool:
+        ...
+
+def handle_request(req: Request) -> Response:
+    auth = Auth()
+    if auth.verify(req.token):
+        return process(req)
+    return deny()
+```
+
+Trailmark produces a graph like:
+
+```mermaid
+graph TD
+    HR["handle_request"] -->|calls| AV["Auth.verify"]
+    HR -->|calls| P["process"]
+    HR -->|calls| D["deny"]
+    AV -->|calls| CS["Auth._check_sig"]
+    A["Auth"] -->|contains| AV
+    A -->|contains| CS
+
+    classDef fn fill:#007bff26,stroke:#007bff,color:#007bff
+    classDef cls fill:#6f42c126,stroke:#6f42c1,color:#6f42c1
+
+    class HR,P,D fn
+    class A,AV,CS cls
+```
+
+## Installation
+
+```bash
+uv pip install -e .
+```
+
+Requires Python &ge; 3.13.
+
+## Usage
+
+```bash
+# Full JSON graph (Python, the default)
+trailmark analyze path/to/project
+
+# Analyze a different language
+trailmark analyze --language rust path/to/project
+trailmark analyze --language javascript path/to/project
+
+# Summary statistics
+trailmark analyze --summary path/to/project
+
+# Complexity hotspots (threshold >= 10)
+trailmark analyze --complexity 10 path/to/project
+```
+
+### Programmatic API
+
+```python
+from trailmark.query.api import QueryEngine
+
+engine = QueryEngine.from_directory("path/to/project")
+
+# Who calls this function?
+engine.callers_of("handle_request")
+
+# What does this function call?
+engine.callees_of("handle_request")
+
+# Call paths from entrypoint to sensitive function
+engine.paths_between("handle_request", "Auth._check_sig")
+
+# Functions with cyclomatic complexity >= 10
+engine.complexity_hotspots(10)
+
+# Add a semantic annotation
+from trailmark.models.annotations import AnnotationKind
+
+engine.annotate(
+    "handle_request",
+    AnnotationKind.ASSUMPTION,
+    "Caller has already authenticated the session token",
+    source="llm",
+)
+
+# Retrieve annotations
+engine.annotations_of("handle_request")
+engine.annotations_of("handle_request", kind=AnnotationKind.ASSUMPTION)
+```
+
+## Development
+
+```bash
+# Install package and dev dependencies
+uv sync --all-groups
+
+# Lint and format
+uv run ruff check --fix
+uv run ruff format
+
+# Type check
+uv tool install ty && ty check
+
+# Tests
+uv run pytest -q
+
+# Mutation testing (on macOS, set this env var to avoid rustworkx fork segfaults)
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES uv run mutmut run
+```
+
+## License
+
+Apache-2.0

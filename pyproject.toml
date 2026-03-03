@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "trailmark"
+version = "0.1.0"
+description = "Parse source code into a queryable graph of functions, classes, calls, and semantic annotations"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "Apache-2.0"
+authors = [
+    { name = "Trail of Bits, Inc.", email = "opensource@trailofbits.com" },
+]
+dependencies = [
+    "tree-sitter>=0.25,<1.0",
+    "tree-sitter-language-pack>=0.13,<1.0",
+    "rustworkx>=0.17,<1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/trailofbits/trailmark"
+Repository = "https://github.com/trailofbits/trailmark"
+Issues = "https://github.com/trailofbits/trailmark/issues"
+
+[project.scripts]
+trailmark = "trailmark.cli:main"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.150.0",
+    "mutmut>=3.4.0",
+    "pytest>=9.0",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.15.0,<1.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "I", "N", "W", "UP",
+    "ANN", "S", "B", "C4", "SIM",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "ANN401"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mutmut]
+paths_to_mutate = ["src/trailmark/"]
+pytest_add_cli_args_test_selection = ["tests/"]
