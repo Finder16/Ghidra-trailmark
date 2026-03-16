@@ -32,6 +32,7 @@ _PARSER_MAP: dict[str, tuple[str, str]] = {
     "circom": ("trailmark.parsers.circom", "CircomParser"),
     "haskell": ("trailmark.parsers.haskell", "HaskellParser"),
     "erlang": ("trailmark.parsers.erlang", "ErlangParser"),
+    "masm": ("trailmark.parsers.masm", "MasmParser"),
 }
 
 _SUPPORTED_LANGUAGES = frozenset(_PARSER_MAP.keys())
