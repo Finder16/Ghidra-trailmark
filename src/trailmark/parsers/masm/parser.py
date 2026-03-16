@@ -94,6 +94,8 @@ def _visit_top_level(
         _extract_entrypoint(child, file_path, module_id, graph)
     elif child.type == "import":
         _extract_import(child, graph)
+    elif child.type == "reexport":
+        _extract_import(child, graph)
     elif child.type == "constant":
         _extract_constant(child, file_path, module_id, graph)
 
@@ -216,16 +218,19 @@ def _extract_visibility(node: Node) -> str:
 
 
 def _extract_num_locals(node: Node) -> list[Parameter]:
-    """Extract num_locals as a synthetic parameter if present.
-
-    The num_locals field spans both the "." token and the decimal value.
-    We need to find the decimal child within the field.
-    """
+    """Extract @locals(N) annotation as a synthetic num_locals parameter."""
     for i, child in enumerate(node.children):
-        if node.field_name_for_child(i) == "num_locals" and child.type == "decimal":
-            text = node_text(child).strip()
-            if text:
-                return [Parameter(name="num_locals", default=text)]
+        if node.field_name_for_child(i) == "annotations" and child.type == "annotation":
+            name_child = child.child_by_field_name("name")
+            if name_child is not None and node_text(name_child).strip() == "locals":
+                value_child = child.child_by_field_name("value")
+                if value_child is not None:
+                    # annotation_args contains the decimal value
+                    for vc in value_child.children:
+                        if vc.type == "decimal":
+                            text = node_text(vc).strip()
+                            if text:
+                                return [Parameter(name="num_locals", default=text)]
     return []
 
 
@@ -250,7 +255,7 @@ def _extract_docstring(node: Node) -> str | None:
 
 def _prepend_visibility(visibility: str, docstring: str | None) -> str | None:
     """Prepend visibility info to docstring if exported."""
-    if visibility == "export":
+    if visibility == "pub":
         prefix = "[export]"
         if docstring:
             return f"{prefix} {docstring}"

@@ -14,19 +14,19 @@ SAMPLE_CODE = """\
 #! This is a sample Miden assembly module
 #! for testing the parser.
 
-use.std::math::u64
-use.std::crypto::hashes::blake3
+use std::math::u64
+use std::crypto::hashes::blake3
 
-const.FOO=42
-const.BAR=FOO+1
+const FOO = 42
+const BAR = FOO + 1
 
 #! Adds two field elements on the stack.
-export.add_values
+pub proc add_values
     add
 end
 
 #! Performs conditional logic.
-export.conditional_branch
+pub proc conditional_branch
     push.1
     push.2
     if.true
@@ -44,7 +44,8 @@ export.conditional_branch
     end
 end
 
-proc.helper_proc.2
+@locals(2)
+proc helper_proc
     loc_store.0
     loc_store.1
     loc_load.0
@@ -180,7 +181,7 @@ class TestMasmParserEdges:
         _, graph = _parse_sample()
         calls = [e for e in graph.edges if e.kind == EdgeKind.CALLS]
         begin_calls = [e for e in calls if "begin" in e.source_id]
-        # exec.add_values, call.std::math::u64::add, exec.helper_proc
+        # exec.add_values, call.std::math::u64::checked_add, exec.helper_proc
         assert len(begin_calls) == 3
 
     def test_local_call_is_certain(self) -> None:
@@ -220,8 +221,8 @@ class TestMasmParserNumLocals:
 class TestMasmParseDirectory:
     def test_parses_multiple_files(self) -> None:
         parser = MasmParser()
-        code_a = "export.foo\n    nop\nend\n"
-        code_b = "export.bar\n    nop\nend\n"
+        code_a = "pub proc foo\n    nop\nend\n"
+        code_b = "pub proc bar\n    nop\nend\n"
         with tempfile.TemporaryDirectory() as tmpdir:
             for name, code in [("a.masm", code_a), ("b.masm", code_b)]:
                 path = os.path.join(tmpdir, name)

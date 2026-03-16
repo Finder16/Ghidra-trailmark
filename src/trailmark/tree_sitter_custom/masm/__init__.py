@@ -1,6 +1,6 @@
 """Vendored tree-sitter-masm grammar with auto-compilation.
 
-Grammar source: https://github.com/0xMiden/tree-sitter-masm (MIT)
+Grammar source: https://github.com/trailofbits/tree-sitter-masm (MIT)
 """
 
 from __future__ import annotations
