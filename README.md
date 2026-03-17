@@ -58,6 +58,7 @@ A language-specific parser walks the directory, parses each file into a tree-sit
 | Circom | `.circom` | templates, functions, signals, components |
 | Haskell | `.hs` | functions, data types, type classes, instances |
 | Erlang | `.erl` | functions, records, behaviours, modules |
+| Miden Assembly | `.masm` | procedures, entrypoints, constants, invocations |
 
 ```mermaid
 flowchart TD
