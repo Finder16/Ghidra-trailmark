@@ -65,7 +65,7 @@ class TestSourceLocation:
     def test_frozen(self) -> None:
         loc = _make_location()
         try:
-            loc.file_path = "other.py"  # type: ignore[misc]
+            loc.file_path = "other.py"  # type: ignore[misc, invalid-assignment]
             assert False, "Should be frozen"  # noqa: B011
         except AttributeError:
             pass

@@ -13,6 +13,7 @@ from trailmark.models.annotations import Annotation, AnnotationKind
 from trailmark.models.edges import CodeEdge
 from trailmark.models.graph import CodeGraph
 from trailmark.models.nodes import CodeUnit
+from trailmark.parsers.base import LanguageParser
 from trailmark.storage.graph_store import GraphStore
 
 _PARSER_MAP: dict[str, tuple[str, str]] = {
@@ -38,7 +39,7 @@ _PARSER_MAP: dict[str, tuple[str, str]] = {
 _SUPPORTED_LANGUAGES = frozenset(_PARSER_MAP.keys())
 
 
-def _get_parser(language: str) -> object:
+def _get_parser(language: str) -> LanguageParser:
     """Lazily import and instantiate a parser for the given language."""
     entry = _PARSER_MAP.get(language)
     if entry is None:
@@ -63,7 +64,7 @@ class QueryEngine:
     ) -> QueryEngine:
         """Parse a directory and return a ready-to-query engine."""
         parser = _get_parser(language)
-        graph = parser.parse_directory(path)  # type: ignore[union-attr]
+        graph = parser.parse_directory(path)
         store = GraphStore(graph)
         return cls(store)
 

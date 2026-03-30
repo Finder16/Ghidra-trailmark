@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -88,7 +89,7 @@ def walk_source_files(
 
 
 def parse_directory(
-    parse_file_fn: object,
+    parse_file_fn: Callable[[str], CodeGraph],
     language: str,
     dir_path: str,
     extensions: tuple[str, ...],
@@ -103,7 +104,7 @@ def parse_directory(
     """
     merged = CodeGraph(language=language, root_path=dir_path)
     for fpath in walk_source_files(dir_path, extensions):
-        file_graph = parse_file_fn(fpath)  # type: ignore[operator]
+        file_graph = parse_file_fn(fpath)
         merged.merge(file_graph)
     return merged
 

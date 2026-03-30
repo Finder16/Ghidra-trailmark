@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from io import StringIO
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -94,8 +95,8 @@ class TestMainHelpText:
 
 
 class TestAnalyzeCommand:
-    def test_analyze_json_output(self, tmp_path: object) -> None:
-        sample = tmp_path / "hello.py"  # type: ignore[operator]
+    def test_analyze_json_output(self, tmp_path: Path) -> None:
+        sample = tmp_path / "hello.py"
         sample.write_text("def greet():\n    return 'hi'\n")
         with (
             patch.object(
@@ -117,10 +118,10 @@ class TestAnalyzeCommand:
 
     def test_analyze_json_full_structure(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
         """Verify exact JSON top-level keys and summary fields."""
-        sample = tmp_path / "a.py"  # type: ignore[operator]
+        sample = tmp_path / "a.py"
         sample.write_text("def f():\n    pass\n")
         with (
             patch.object(
@@ -156,9 +157,9 @@ class TestAnalyzeCommand:
 
     def test_analyze_summary_exact_format(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
-        sample = tmp_path / "app.py"  # type: ignore[operator]
+        sample = tmp_path / "app.py"
         sample.write_text(
             "class Foo:\n    pass\n\ndef bar():\n    pass\n",
         )
@@ -183,10 +184,10 @@ class TestAnalyzeCommand:
 
     def test_analyze_summary_with_dependencies(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
         """Dependencies line should include comma-joined names."""
-        sample = tmp_path / "app.py"  # type: ignore[operator]
+        sample = tmp_path / "app.py"
         sample.write_text("import os\nfrom pathlib import Path\n")
         with (
             patch.object(
@@ -206,10 +207,10 @@ class TestAnalyzeCommand:
 
     def test_analyze_summary_line_prefixes(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
         """Every summary line must start with the exact expected label."""
-        sample = tmp_path / "x.py"  # type: ignore[operator]
+        sample = tmp_path / "x.py"
         sample.write_text("def f(): pass\n")
         with (
             patch.object(
@@ -230,9 +231,9 @@ class TestAnalyzeCommand:
 
     def test_analyze_summary_short_flag(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
-        sample = tmp_path / "s.py"  # type: ignore[operator]
+        sample = tmp_path / "s.py"
         sample.write_text("def f():\n    pass\n")
         with (
             patch.object(
@@ -250,7 +251,7 @@ class TestAnalyzeCommand:
 
     def test_analyze_complexity_exact_output(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
         code = (
             "def branchy(x):\n"
@@ -261,7 +262,7 @@ class TestAnalyzeCommand:
             "            return 2\n"
             "    return 0\n"
         )
-        sample = tmp_path / "complex.py"  # type: ignore[operator]
+        sample = tmp_path / "complex.py"
         sample.write_text(code)
         with (
             patch.object(
@@ -294,11 +295,11 @@ class TestAnalyzeCommand:
 
     def test_analyze_complexity_short_flag(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
         """The -c flag should work the same as --complexity."""
         code = "def f(x):\n    if x: return 1\n    return 0\n"
-        sample = tmp_path / "c.py"  # type: ignore[operator]
+        sample = tmp_path / "c.py"
         sample.write_text(code)
         with (
             patch.object(
@@ -314,9 +315,9 @@ class TestAnalyzeCommand:
 
     def test_analyze_complexity_no_hotspots(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
-        sample = tmp_path / "simple.py"  # type: ignore[operator]
+        sample = tmp_path / "simple.py"
         sample.write_text("def noop():\n    pass\n")
         with (
             patch.object(
@@ -338,9 +339,9 @@ class TestAnalyzeCommand:
 
     def test_analyze_default_language_is_python(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
-        sample = tmp_path / "m.py"  # type: ignore[operator]
+        sample = tmp_path / "m.py"
         sample.write_text("x = 1\n")
         with (
             patch.object(
@@ -356,10 +357,10 @@ class TestAnalyzeCommand:
 
     def test_analyze_explicit_language_flag(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
         """--language python should produce same output as default."""
-        sample = tmp_path / "x.py"  # type: ignore[operator]
+        sample = tmp_path / "x.py"
         sample.write_text("y = 1\n")
         with (
             patch.object(
@@ -381,10 +382,10 @@ class TestAnalyzeCommand:
 
     def test_analyze_language_short_flag(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
         """The -l flag should work for language."""
-        sample = tmp_path / "z.py"  # type: ignore[operator]
+        sample = tmp_path / "z.py"
         sample.write_text("z = 1\n")
         with (
             patch.object(
@@ -406,10 +407,10 @@ class TestAnalyzeCommand:
 
     def test_analyze_summary_takes_priority_over_json(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
         """When --summary is set, output should not be JSON."""
-        sample = tmp_path / "t.py"  # type: ignore[operator]
+        sample = tmp_path / "t.py"
         sample.write_text("def t(): pass\n")
         with (
             patch.object(
@@ -428,11 +429,11 @@ class TestAnalyzeCommand:
 
     def test_analyze_complexity_takes_priority_over_json(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
         """When --complexity is set, output is not JSON."""
         code = "def f(x):\n    if x: return 1\n    return 0\n"
-        sample = tmp_path / "t2.py"  # type: ignore[operator]
+        sample = tmp_path / "t2.py"
         sample.write_text(code)
         with (
             patch.object(
@@ -456,10 +457,10 @@ class TestAnalyzeCommand:
 
     def test_analyze_path_argument_passed(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
         """The path argument should be the analyzed directory."""
-        sample = tmp_path / "p.py"  # type: ignore[operator]
+        sample = tmp_path / "p.py"
         sample.write_text("def p(): pass\n")
         with (
             patch.object(
@@ -475,10 +476,10 @@ class TestAnalyzeCommand:
 
     def test_analyze_complexity_zero_means_json(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
         """Default complexity=0 should output JSON, not complexity."""
-        sample = tmp_path / "c0.py"  # type: ignore[operator]
+        sample = tmp_path / "c0.py"
         sample.write_text("def f(): pass\n")
         with (
             patch.object(
@@ -495,11 +496,11 @@ class TestAnalyzeCommand:
 
     def test_analyze_complexity_one_not_json(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
         """Complexity=1 should show complexity output, not JSON."""
         code = "def f(x):\n    if x: return 1\n    return 0\n"
-        sample = tmp_path / "c1.py"  # type: ignore[operator]
+        sample = tmp_path / "c1.py"
         sample.write_text(code)
         with (
             patch.object(
