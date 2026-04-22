@@ -19,7 +19,21 @@ import pytest
 from trailmark.cli import build_parser
 from trailmark.query.api import _PARSER_MAP, QueryEngine
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+
+def _find_repo_root() -> Path:
+    """Locate the repo root by walking up until we find README.md + pyproject.toml.
+
+    Necessary because mutmut copies the source tree into a `mutants/` subdir
+    without the non-Python files, so `parent.parent` resolves to the wrong place.
+    """
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "README.md").exists() and (candidate / "pyproject.toml").exists():
+            return candidate
+    msg = "Could not locate repo root (README.md + pyproject.toml)"
+    raise RuntimeError(msg)
+
+
+REPO_ROOT = _find_repo_root()
 README = REPO_ROOT / "README.md"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 
