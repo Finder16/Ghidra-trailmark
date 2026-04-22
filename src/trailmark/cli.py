@@ -9,8 +9,8 @@ from typing import Any
 from trailmark.query.api import QueryEngine
 
 
-def main() -> None:
-    """Run the Trailmark CLI."""
+def build_parser() -> argparse.ArgumentParser:
+    """Construct the Trailmark CLI's argparse tree."""
     parser = argparse.ArgumentParser(
         prog="trailmark",
         description="Parse source code into queryable graphs",
@@ -71,6 +71,12 @@ def main() -> None:
         help="Output full augmented graph as JSON",
     )
 
+    return parser
+
+
+def main() -> None:
+    """Run the Trailmark CLI."""
+    parser = build_parser()
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
