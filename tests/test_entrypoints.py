@@ -235,6 +235,194 @@ class TestDirectAPI:
         assert tag.asset_value == AssetValue.LOW
 
 
+class TestPythonFrameworks:
+    def test_flask_route_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "app.py").write_text(
+            "from flask import Flask\n"
+            "app = Flask(__name__)\n"
+            "\n"
+            "@app.route('/login', methods=['POST'])\n"
+            "def login():\n"
+            "    return 'ok'\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path))
+        surface = engine.attack_surface()
+        by_id = {ep["node_id"]: ep for ep in surface}
+        assert "app:login" in by_id
+        assert by_id["app:login"]["kind"] == "api"
+        assert by_id["app:login"]["trust_level"] == "untrusted_external"
+        assert by_id["app:login"]["asset_value"] == "high"
+
+    def test_fastapi_post_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "api.py").write_text(
+            "from fastapi import FastAPI\n"
+            "app = FastAPI()\n"
+            "\n"
+            "@app.post('/auth')\n"
+            "async def auth(body: dict):\n"
+            "    return body\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path))
+        ids = {ep["node_id"] for ep in engine.attack_surface()}
+        assert "api:auth" in ids
+
+    def test_fastapi_router_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "routes.py").write_text(
+            "from fastapi import APIRouter\n"
+            "router = APIRouter()\n"
+            "\n"
+            "@router.get('/users/{id}')\n"
+            "def get_user(id: int):\n"
+            "    return {'id': id}\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path))
+        ids = {ep["node_id"] for ep in engine.attack_surface()}
+        assert "routes:get_user" in ids
+
+    def test_click_command_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "tool.py").write_text(
+            "import click\n"
+            "\n"
+            "@click.command()\n"
+            "def run():\n"
+            "    pass\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path))
+        by_id = {ep["node_id"]: ep for ep in engine.attack_surface()}
+        assert "tool:run" in by_id
+        assert by_id["tool:run"]["kind"] == "user_input"
+        assert by_id["tool:run"]["asset_value"] == "medium"
+
+    def test_typer_command_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "cli.py").write_text(
+            "import typer\n"
+            "app = typer.Typer()\n"
+            "\n"
+            "@app.command()\n"
+            "def hello(name: str):\n"
+            "    pass\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path))
+        ids = {ep["node_id"] for ep in engine.attack_surface()}
+        assert "cli:hello" in ids
+
+    def test_celery_task_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "tasks.py").write_text(
+            "from celery import Celery\n"
+            "celery_app = Celery()\n"
+            "\n"
+            "@celery_app.task\n"
+            "def send_email(to, body):\n"
+            "    pass\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path))
+        by_id = {ep["node_id"]: ep for ep in engine.attack_surface()}
+        assert "tasks:send_email" in by_id
+        assert by_id["tasks:send_email"]["kind"] == "third_party"
+        assert by_id["tasks:send_email"]["trust_level"] == "semi_trusted_external"
+
+    def test_undecorated_function_not_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "mod.py").write_text("def helper():\n    pass\n")
+        engine = QueryEngine.from_directory(str(tmp_path))
+        assert engine.attack_surface() == []
+
+
+class TestRustFrameworks:
+    def test_actix_web_get_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "server.rs").write_text(
+            'use actix_web::{get, Responder};\n'
+            '\n'
+            '#[get("/users/{id}")]\n'
+            'async fn get_user() -> impl Responder {\n'
+            '    "ok"\n'
+            '}\n',
+        )
+        engine = QueryEngine.from_directory(str(tmp_path), language="rust")
+        ids = {ep["node_id"] for ep in engine.attack_surface()}
+        assert any("get_user" in node_id for node_id in ids), ids
+
+    def test_no_mangle_ffi_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "ffi.rs").write_text(
+            '#[no_mangle]\n'
+            'pub extern "C" fn add_one(x: i32) -> i32 {\n'
+            '    x + 1\n'
+            '}\n',
+        )
+        engine = QueryEngine.from_directory(str(tmp_path), language="rust")
+        by_id = {ep["node_id"]: ep for ep in engine.attack_surface()}
+        assert any("add_one" in nid for nid in by_id), by_id
+        # And its asset value is high.
+        assert any(ep["asset_value"] == "high" for ep in by_id.values())
+
+
+class TestSolidity:
+    def test_external_function_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "Vault.sol").write_text(
+            "// SPDX-License-Identifier: MIT\n"
+            "pragma solidity ^0.8.0;\n"
+            "contract Vault {\n"
+            "    function withdraw(uint256 amount) external {\n"
+            "    }\n"
+            "}\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path), language="solidity")
+        ids = {ep["node_id"] for ep in engine.attack_surface()}
+        assert any("withdraw" in nid for nid in ids), ids
+
+    def test_public_function_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "Token.sol").write_text(
+            "// SPDX-License-Identifier: MIT\n"
+            "pragma solidity ^0.8.0;\n"
+            "contract Token {\n"
+            "    function balanceOf(address who) public view returns (uint256) {\n"
+            "        return 0;\n"
+            "    }\n"
+            "}\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path), language="solidity")
+        ids = {ep["node_id"] for ep in engine.attack_surface()}
+        assert any("balanceOf" in nid for nid in ids), ids
+
+    def test_internal_function_not_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "Lib.sol").write_text(
+            "// SPDX-License-Identifier: MIT\n"
+            "pragma solidity ^0.8.0;\n"
+            "contract Lib {\n"
+            "    function _helper(uint256 x) internal pure returns (uint256) {\n"
+            "        return x + 1;\n"
+            "    }\n"
+            "}\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path), language="solidity")
+        assert engine.attack_surface() == []
+
+    def test_fallback_and_receive_detected_when_parser_emits_them(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Guard against regressions once the Solidity parser exposes special fns.
+
+        Today the Solidity parser does not emit ``receive()`` / ``fallback()``
+        as separate function nodes, so the detector has nothing to tag. When
+        the parser is updated to emit them, this test should start passing
+        without any detector changes — the _SOL_SPECIAL regex already handles
+        the signature shape.
+        """
+        (tmp_path / "Wallet.sol").write_text(
+            "// SPDX-License-Identifier: MIT\n"
+            "pragma solidity ^0.8.0;\n"
+            "contract Wallet {\n"
+            "    receive() external payable {}\n"
+            "    fallback() external payable {}\n"
+            "}\n",
+        )
+        engine = QueryEngine.from_directory(str(tmp_path), language="solidity")
+        ids = {ep["node_id"] for ep in engine.attack_surface()}
+        # Current expectation: parser does not emit these yet.
+        assert not any("receive" in nid for nid in ids)
+        assert not any("fallback" in nid for nid in ids)
+
+
 @pytest.fixture(autouse=True)
 def _isolate_cwd(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Some tests create pyproject.toml in tmp_path; make sure detection does

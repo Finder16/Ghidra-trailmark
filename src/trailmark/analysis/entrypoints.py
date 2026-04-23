@@ -17,6 +17,7 @@ parser support for decorators/visibility and is planned for a follow-up.
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -28,8 +29,48 @@ from trailmark.models.annotations import (
     TrustLevel,
 )
 from trailmark.models.graph import CodeGraph
+from trailmark.models.nodes import CodeUnit
 
 OVERRIDE_FILE = ".trailmark/entrypoints.toml"
+
+# How many lines above start_line to scan for decorators/attributes.
+_DECORATOR_LOOKBACK = 12
+
+# Python HTTP web-framework decorator suffix on any receiver.
+#   Matches: @app.route(...), @router.get(...), @bp.post(...), @routes.put(...)
+#   (Flask, FastAPI, aiohttp, Sanic all share this shape.)
+_PY_HTTP_DECORATOR = re.compile(
+    r"^\s*@\s*[A-Za-z_][\w.]*\.(route|get|post|put|patch|delete|head|options|"
+    r"websocket|api_route)\s*\(",
+)
+
+# @click.command / @click.group / @typer_app.command
+_PY_CLI_DECORATOR = re.compile(
+    r"^\s*@\s*(click\.(command|group)|[A-Za-z_][\w.]*\.command)\s*\(",
+)
+
+# @celery_app.task, @shared_task, @app.task
+_PY_TASK_DECORATOR = re.compile(
+    r"^\s*@\s*([A-Za-z_][\w.]*\.task|shared_task)\b",
+)
+
+# Rust proc-macro handler attributes: #[get("/")], #[post("/")], etc.
+_RS_HTTP_ATTR = re.compile(
+    r"^\s*#\[\s*(get|post|put|delete|patch|head|options|connect|trace)\s*\(",
+)
+
+# Rust #[tokio::main] / #[async_std::main] / #[actix_web::main]
+_RS_ASYNC_MAIN_ATTR = re.compile(r"^\s*#\[\s*\w+::main\s*\]\s*$")
+
+# Rust FFI export: #[no_mangle] or `pub extern "C" fn`
+_RS_NO_MANGLE = re.compile(r"^\s*#\[\s*no_mangle\s*\]\s*$")
+_RS_EXTERN_C_FN = re.compile(r"\bpub\s+extern\s+\"C\"\s+fn\b")
+
+# Solidity function visibility — scan the signature line itself.
+_SOL_VISIBILITY = re.compile(
+    r"\bfunction\s+\w+\s*\([^)]*\)\s*(?:[\w\s]*?\b)?(external|public)\b",
+)
+_SOL_SPECIAL = re.compile(r"^\s*(fallback|receive)\s*\(\s*\)")
 
 _KIND_BY_NAME = {k.value: k for k in EntrypointKind}
 _TRUST_BY_NAME = {t.value: t for t in TrustLevel}
@@ -56,13 +97,218 @@ def detect_entrypoints(graph: CodeGraph, root_path: str) -> dict[str, Entrypoint
 
     # Priority (least to most specific, later layers override earlier):
     #   1. Generic `main` functions — fallback heuristic.
-    #   2. pyproject.toml [project.scripts] — explicitly-declared CLI targets.
-    #   3. Override file — hand-curated, authoritative.
+    #   2. Framework-aware decorator/attribute scan.
+    #   3. pyproject.toml [project.scripts] — explicitly-declared CLI targets.
+    #   4. Override file — hand-curated, authoritative.
     detected: dict[str, EntrypointTag] = {}
     detected.update(_detect_main_functions(graph))
+    detected.update(_detect_framework_entrypoints(graph))
     detected.update(_detect_pyproject_scripts(graph, repo_root))
     detected.update(_load_override_file(graph, repo_root))
     return detected
+
+
+def _detect_framework_entrypoints(graph: CodeGraph) -> dict[str, EntrypointTag]:
+    """Scan source files for framework-specific entrypoint markers.
+
+    Covers Python web/task/CLI decorators, Rust handler/FFI attributes,
+    and Solidity visibility. Designed to be additive: each node is checked
+    against every language's detectors because files of mixed languages
+    are rare but possible (embedded DSLs, templates).
+    """
+    cache = _SourceCache()
+    result: dict[str, EntrypointTag] = {}
+    for node_id, unit in graph.nodes.items():
+        if unit.kind.value not in {"function", "method"}:
+            continue
+        path = unit.location.file_path
+        if not path:
+            continue
+
+        tag = _detect_for_unit(cache, unit, path)
+        if tag is not None:
+            result[node_id] = tag
+    return result
+
+
+def _detect_for_unit(
+    cache: _SourceCache,
+    unit: CodeUnit,
+    path: str,
+) -> EntrypointTag | None:
+    if path.endswith(".py"):
+        return _detect_python(cache, unit, path)
+    if path.endswith(".rs"):
+        return _detect_rust(cache, unit, path)
+    if path.endswith(".sol"):
+        return _detect_solidity(cache, unit, path)
+    return None
+
+
+def _detect_python(
+    cache: _SourceCache,
+    unit: CodeUnit,
+    path: str,
+) -> EntrypointTag | None:
+    decorators = cache.decorators_above(path, unit.location.start_line)
+    for line in decorators:
+        if _PY_HTTP_DECORATOR.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.API,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="Python HTTP route decorator",
+                asset_value=AssetValue.HIGH,
+            )
+        if _PY_CLI_DECORATOR.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.USER_INPUT,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="Python CLI command (Click/Typer)",
+                asset_value=AssetValue.MEDIUM,
+            )
+        if _PY_TASK_DECORATOR.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.THIRD_PARTY,
+                trust_level=TrustLevel.SEMI_TRUSTED_EXTERNAL,
+                description="Python task queue handler (Celery)",
+                asset_value=AssetValue.MEDIUM,
+            )
+    return None
+
+
+def _detect_rust(
+    cache: _SourceCache,
+    unit: CodeUnit,
+    path: str,
+) -> EntrypointTag | None:
+    decorators = cache.decorators_above(path, unit.location.start_line)
+    signature = cache.line(path, unit.location.start_line)
+
+    for line in decorators:
+        if _RS_HTTP_ATTR.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.API,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="Rust HTTP handler attribute",
+                asset_value=AssetValue.HIGH,
+            )
+        if _RS_NO_MANGLE.match(line):
+            return EntrypointTag(
+                kind=EntrypointKind.API,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="Rust FFI export (#[no_mangle])",
+                asset_value=AssetValue.HIGH,
+            )
+        if _RS_ASYNC_MAIN_ATTR.match(line) and unit.name == "main":
+            return EntrypointTag(
+                kind=EntrypointKind.USER_INPUT,
+                trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+                description="Rust async main (tokio/actix/async-std)",
+                asset_value=AssetValue.HIGH,
+            )
+    if signature and _RS_EXTERN_C_FN.search(signature):
+        return EntrypointTag(
+            kind=EntrypointKind.API,
+            trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+            description="Rust FFI export (pub extern \"C\")",
+            asset_value=AssetValue.HIGH,
+        )
+    return None
+
+
+def _detect_solidity(
+    cache: _SourceCache,
+    unit: CodeUnit,
+    path: str,
+) -> EntrypointTag | None:
+    signature = cache.signature_block(path, unit.location.start_line)
+    if signature is None:
+        return None
+    if _SOL_SPECIAL.search(signature):
+        return EntrypointTag(
+            kind=EntrypointKind.API,
+            trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+            description="Solidity fallback/receive",
+            asset_value=AssetValue.HIGH,
+        )
+    if _SOL_VISIBILITY.search(signature):
+        return EntrypointTag(
+            kind=EntrypointKind.API,
+            trust_level=TrustLevel.UNTRUSTED_EXTERNAL,
+            description="Solidity external/public function",
+            asset_value=AssetValue.HIGH,
+        )
+    return None
+
+
+class _SourceCache:
+    """Lazily reads and caches source files during a detection pass."""
+
+    def __init__(self) -> None:
+        self._lines: dict[str, list[str]] = {}
+
+    def _read(self, path: str) -> list[str]:
+        cached = self._lines.get(path)
+        if cached is not None:
+            return cached
+        try:
+            text = Path(path).read_text()
+        except (OSError, UnicodeDecodeError):
+            text = ""
+        lines = text.splitlines()
+        self._lines[path] = lines
+        return lines
+
+    def line(self, path: str, one_indexed: int) -> str | None:
+        lines = self._read(path)
+        idx = one_indexed - 1
+        if 0 <= idx < len(lines):
+            return lines[idx]
+        return None
+
+    def decorators_above(self, path: str, start_line: int) -> list[str]:
+        """Return contiguous non-blank lines immediately above ``start_line``.
+
+        Walks backwards until a blank line or a non-decorator-looking line
+        is hit. Returns the collected lines in reading order (top-down).
+        """
+        lines = self._read(path)
+        start_idx = start_line - 1
+        collected: list[str] = []
+        i = start_idx - 1
+        while i >= 0:
+            candidate = lines[i]
+            stripped = candidate.strip()
+            if not stripped:
+                break
+            if not (stripped.startswith("@") or stripped.startswith("#[")):
+                break
+            collected.append(candidate)
+            i -= 1
+            if len(collected) >= _DECORATOR_LOOKBACK:
+                break
+        collected.reverse()
+        return collected
+
+    def signature_block(self, path: str, start_line: int) -> str | None:
+        """Return the function signature as a single line.
+
+        Solidity / Rust signatures can wrap across several lines. Join
+        up to 8 lines starting at ``start_line`` and stop at the first
+        line containing an opening brace.
+        """
+        lines = self._read(path)
+        idx = start_line - 1
+        if idx < 0 or idx >= len(lines):
+            return None
+        parts: list[str] = []
+        for offset in range(8):
+            if idx + offset >= len(lines):
+                break
+            parts.append(lines[idx + offset])
+            if "{" in lines[idx + offset]:
+                break
+        return " ".join(parts)
 
 
 def _find_repo_root(start: Path) -> Path:
