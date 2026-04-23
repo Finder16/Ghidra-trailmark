@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from typing import Any
 
@@ -40,6 +41,23 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help="Show functions with complexity >= threshold",
+    )
+
+    entrypoints = subparsers.add_parser(
+        "entrypoints",
+        help="List detected entrypoints and their trust classification",
+    )
+    entrypoints.add_argument("path", help="Directory to analyze")
+    entrypoints.add_argument(
+        "--language",
+        "-l",
+        default="python",
+        help="Source language (default: python)",
+    )
+    entrypoints.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit entrypoints as JSON instead of a human-readable list",
     )
 
     augment = subparsers.add_parser(
@@ -86,6 +104,8 @@ def main() -> None:
         _run_analyze(args)
     elif args.command == "augment":
         _run_augment(args)
+    elif args.command == "entrypoints":
+        _run_entrypoints(args)
 
 
 def _run_analyze(args: argparse.Namespace) -> None:
@@ -160,3 +180,29 @@ def _print_augment_result(
     subgraphs = result.get("subgraphs_created", [])
     if subgraphs:
         print(f"  Subgraphs: {', '.join(str(s) for s in subgraphs)}")
+
+
+def _run_entrypoints(args: argparse.Namespace) -> None:
+    """Execute the entrypoints subcommand."""
+    engine = QueryEngine.from_directory(args.path, language=args.language)
+    surface = engine.attack_surface()
+
+    if args.json:
+        print(json.dumps(surface, indent=2))
+        return
+
+    if not surface:
+        print("No entrypoints detected.")
+        print("Hint: declare entrypoints manually in .trailmark/entrypoints.toml")
+        return
+
+    print(f"{len(surface)} entrypoint(s) detected:")
+    for ep in surface:
+        print(
+            f"  {ep['node_id']}  "
+            f"kind={ep['kind']}  "
+            f"trust={ep['trust_level']}  "
+            f"asset={ep['asset_value']}",
+        )
+        if ep.get("description"):
+            print(f"    {ep['description']}")

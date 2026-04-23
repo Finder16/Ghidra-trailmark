@@ -238,7 +238,28 @@ trailmark analyze --complexity 10 path/to/project
 trailmark augment --sarif results.sarif path/to/project
 trailmark augment --weaudit findings.json path/to/project
 trailmark augment --sarif a.sarif --sarif b.sarif --json path/to/project
+
+# List detected entrypoints (attack surface). Uses heuristic detection
+# (main() functions, pyproject.toml [project.scripts]) plus an optional
+# override file at .trailmark/entrypoints.toml (see below).
+trailmark entrypoints path/to/project
+trailmark entrypoints --json path/to/project
 ```
+
+### Declaring entrypoints
+
+Trailmark automatically detects entrypoints from common patterns (Python `main()` functions and `[project.scripts]` targets today, with language- and framework-aware detectors arriving in follow-up releases). For anything the heuristics miss, declare entrypoints explicitly in `.trailmark/entrypoints.toml` at the project root:
+
+```toml
+[[entrypoint]]
+node = "my_module:handle_request"  # node id, or "module.path:function"
+kind = "api"                       # user_input | api | database | file_system | third_party
+trust = "untrusted_external"       # untrusted_external | semi_trusted_external | trusted_internal
+asset_value = "high"               # high | medium | low
+description = "HTTP POST /auth"
+```
+
+Declared entrypoints override heuristic defaults. The override file is how you teach Trailmark what counts as an attacker surface in your codebase — the resulting `attack_surface()`, taint-propagation, and privilege-boundary passes all key off this data.
 
 ### Programmatic API
 

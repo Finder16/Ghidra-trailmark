@@ -8,6 +8,7 @@ from dataclasses import asdict
 from typing import Any
 
 from trailmark.analysis.augment import augment_from_sarif, augment_from_weaudit
+from trailmark.analysis.entrypoints import detect_entrypoints
 from trailmark.analysis.preanalysis import run_preanalysis
 from trailmark.models.annotations import Annotation, AnnotationKind
 from trailmark.models.edges import CodeEdge
@@ -61,10 +62,20 @@ class QueryEngine:
         cls,
         path: str,
         language: str = "python",
+        *,
+        detect_entrypoints_: bool = True,
     ) -> QueryEngine:
-        """Parse a directory and return a ready-to-query engine."""
+        """Parse a directory and return a ready-to-query engine.
+
+        Entrypoint detection runs automatically so that ``attack_surface()``
+        and the entrypoint-dependent preanalysis passes have data to work
+        with. Pass ``detect_entrypoints_=False`` to skip it (e.g. when the
+        caller wants to drive detection separately).
+        """
         parser = _get_parser(language)
         graph = parser.parse_directory(path)
+        if detect_entrypoints_:
+            graph.entrypoints.update(detect_entrypoints(graph, path))
         store = GraphStore(graph)
         return cls(store)
 
