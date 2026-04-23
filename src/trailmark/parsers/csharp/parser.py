@@ -63,7 +63,9 @@ class CSharpParser:
         return "csharp"
 
     def __init__(self) -> None:
-        self._parser = get_parser("csharp")
+        # tree-sitter-language-pack 1.6.0's stub omits "csharp" from the
+        # SupportedLanguage Literal, but the runtime accepts it fine.
+        self._parser = get_parser("csharp")  # ty: ignore[invalid-argument-type]
 
     def parse_file(self, file_path: str) -> CodeGraph:
         """Parse a single C# file into a CodeGraph."""
