@@ -32,6 +32,8 @@ class SourceLocation:
     end_line: int
     start_col: int | None = None
     end_col: int | None = None
+    start_address: str | None = None
+    end_address: str | None = None
 
 
 @dataclass(frozen=True)

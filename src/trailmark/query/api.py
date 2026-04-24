@@ -11,6 +11,7 @@ from trailmark.analysis.augment import augment_from_sarif, augment_from_weaudit
 from trailmark.analysis.diff import compute_diff
 from trailmark.analysis.entrypoints import detect_entrypoints
 from trailmark.analysis.preanalysis import run_preanalysis
+from trailmark.ghidra import analyze_binary, load_ghidra_export
 from trailmark.models.annotations import Annotation, AnnotationKind
 from trailmark.models.edges import CodeEdge
 from trailmark.models.graph import CodeGraph
@@ -63,6 +64,26 @@ class QueryEngine:
         """Create an engine from a pre-built CodeGraph."""
         store = GraphStore(graph)
         return cls(store)
+
+    @classmethod
+    def from_ghidra_export(cls, path: str) -> QueryEngine:
+        """Load a QueryEngine from a Trailmark-compatible Ghidra export JSON."""
+        graph = load_ghidra_export(path)
+        return cls.from_graph(graph)
+
+    @classmethod
+    def from_binary(
+        cls,
+        path: str,
+        *,
+        ghidra_install_dir: str | None = None,
+    ) -> QueryEngine:
+        """Analyze a binary with Ghidra headless and return a QueryEngine."""
+        graph = analyze_binary(
+            path,
+            ghidra_install_dir=ghidra_install_dir,
+        )
+        return cls.from_graph(graph)
 
     def diff_against(self, other: QueryEngine) -> dict[str, Any]:
         """Return a structured diff of ``self`` relative to ``other``.

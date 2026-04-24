@@ -54,11 +54,24 @@ class TestSourceLocation:
         assert loc.start_line == 5
         assert loc.end_line == 10
         assert loc.start_col is None
+        assert loc.start_address is None
+        assert loc.end_address is None
 
     def test_with_columns(self) -> None:
         loc = SourceLocation("f.py", 1, 1, start_col=0, end_col=10)
         assert loc.start_col == 0
         assert loc.end_col == 10
+
+    def test_with_addresses(self) -> None:
+        loc = SourceLocation(
+            "prog.bin",
+            1,
+            1,
+            start_address="0x401000",
+            end_address="0x401050",
+        )
+        assert loc.start_address == "0x401000"
+        assert loc.end_address == "0x401050"
 
     def test_frozen(self) -> None:
         loc = _make_location()

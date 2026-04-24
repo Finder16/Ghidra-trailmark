@@ -1,4 +1,4 @@
-"""Trailmark: Parse source code into queryable graphs for security analysis."""
+"""Trailmark: Parse source code and binaries into queryable graphs for security analysis."""
 
 from trailmark.parse import (
     detect_languages,

@@ -18,7 +18,10 @@ def build_parser() -> argparse.ArgumentParser:
     """Construct the Trailmark CLI's argparse tree."""
     parser = argparse.ArgumentParser(
         prog="trailmark",
-        description=f"Parse source code into queryable graphs (v{__version__})",
+        description=(
+            "Parse source code and Ghidra-analyzed binaries into queryable "
+            f"graphs (v{__version__})"
+        ),
     )
     parser.add_argument(
         "--version",
@@ -51,6 +54,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print summary instead of full graph",
     )
     analyze.add_argument(
+        "--complexity",
+        "-c",
+        type=int,
+        default=0,
+        help="Show functions with complexity >= threshold",
+    )
+
+    binary = subparsers.add_parser(
+        "binary",
+        help="Analyze a binary with Ghidra headless and output the code graph",
+    )
+    binary.add_argument("path", help="Binary to analyze")
+    binary.add_argument(
+        "--ghidra-install-dir",
+        help="Ghidra install root used to locate analyzeHeadless",
+    )
+    binary.add_argument(
+        "--summary",
+        "-s",
+        action="store_true",
+        help="Print summary instead of full graph",
+    )
+    binary.add_argument(
         "--complexity",
         "-c",
         type=int,
@@ -152,6 +178,8 @@ def main() -> None:
         return
     if args.command == "analyze":
         _run_analyze(args)
+    elif args.command == "binary":
+        _run_binary(args)
     elif args.command == "augment":
         _run_augment(args)
     elif args.command == "entrypoints":
@@ -165,6 +193,21 @@ def _run_analyze(args: argparse.Namespace) -> None:
     engine = QueryEngine.from_directory(
         args.path,
         language=args.language,
+    )
+
+    if args.summary:
+        _print_summary(engine)
+    elif args.complexity > 0:
+        _print_complexity(engine, args.complexity)
+    else:
+        print(engine.to_json())
+
+
+def _run_binary(args: argparse.Namespace) -> None:
+    """Execute the binary subcommand."""
+    engine = QueryEngine.from_binary(
+        args.path,
+        ghidra_install_dir=args.ghidra_install_dir,
     )
 
     if args.summary:

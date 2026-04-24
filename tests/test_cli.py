@@ -6,7 +6,7 @@ import json
 import sys
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -90,6 +90,20 @@ class TestMainHelpText:
             main()
         output = mock_out.getvalue()
         assert "-l" in output
+        assert "-s" in output
+        assert "-c" in output
+
+    def test_binary_help(self) -> None:
+        with (
+            patch.object(sys, "argv", ["trailmark", "binary", "--help"]),
+            patch("sys.stdout", new_callable=StringIO) as mock_out,
+            pytest.raises(SystemExit),
+        ):
+            main()
+        output = mock_out.getvalue()
+        assert "Binary to analyze" in output
+        assert "ghidra" in output.lower()
+        assert "--ghidra-install-dir" in output
         assert "-s" in output
         assert "-c" in output
 
@@ -249,6 +263,82 @@ class TestAnalyzeCommand:
         assert "Functions:" in output
         assert "Classes:" in output
 
+
+class TestBinaryCommand:
+    def test_binary_json_output(self) -> None:
+        engine = Mock()
+        engine.to_json.return_value = json.dumps(
+            {
+                "language": "ghidra:x86:LE:64:default",
+                "root_path": "/sample.bin",
+                "summary": {
+                    "total_nodes": 1,
+                    "functions": 0,
+                    "classes": 0,
+                    "call_edges": 0,
+                    "dependencies": [],
+                    "entrypoints": 0,
+                },
+                "nodes": {},
+                "edges": [],
+                "subgraphs": {},
+            }
+        )
+
+        with (
+            patch("trailmark.cli.QueryEngine.from_binary", return_value=engine) as mock_from_binary,
+            patch.object(sys, "argv", ["trailmark", "binary", "/sample.bin"]),
+            patch("sys.stdout", new_callable=StringIO) as mock_out,
+        ):
+            main()
+
+        mock_from_binary.assert_called_once_with(
+            "/sample.bin",
+            ghidra_install_dir=None,
+        )
+        data = json.loads(mock_out.getvalue())
+        assert data["language"] == "ghidra:x86:LE:64:default"
+        assert data["root_path"] == "/sample.bin"
+
+    def test_binary_summary_output(self) -> None:
+        engine = Mock()
+        engine.summary.return_value = {
+            "total_nodes": 4,
+            "functions": 3,
+            "classes": 0,
+            "call_edges": 2,
+            "dependencies": ["libc"],
+            "entrypoints": 1,
+        }
+
+        with (
+            patch("trailmark.cli.QueryEngine.from_binary", return_value=engine),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "trailmark",
+                    "binary",
+                    "/sample.bin",
+                    "--ghidra-install-dir",
+                    "/ghidra",
+                    "--summary",
+                ],
+            ),
+            patch("sys.stdout", new_callable=StringIO) as mock_out,
+        ):
+            main()
+
+        lines = mock_out.getvalue().strip().split("\n")
+        assert lines[0] == "Nodes: 4"
+        assert lines[1] == "  Functions: 3"
+        assert lines[2] == "  Classes: 0"
+        assert lines[3] == "Call edges: 2"
+        assert lines[4] == "Dependencies: libc"
+        assert lines[5] == "Entrypoints: 1"
+
+
+class TestAnalyzeCommandMore:
     def test_analyze_complexity_exact_output(
         self,
         tmp_path: Path,

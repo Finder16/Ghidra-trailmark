@@ -229,6 +229,22 @@ class TestParseOnlyAPI:
         assert 'graph = parse_file("path/to/file.py")' in readme_text
 
 
+class TestBinaryAPI:
+    def test_readme_mentions_binary_subcommand(self, readme_text: str) -> None:
+        assert "trailmark binary path/to/target.bin" in readme_text
+        assert "--ghidra-install-dir" in readme_text
+
+    def test_readme_mentions_binary_api(self, readme_text: str) -> None:
+        assert "from trailmark.ghidra import analyze_binary, load_ghidra_export" in readme_text
+        assert 'engine = QueryEngine.from_binary("path/to/target.bin"' in readme_text
+        expected = 'engine = QueryEngine.from_ghidra_export("trailmark_ghidra_export.json")'
+        assert expected in readme_text
+
+    def test_binary_classmethods_exist(self) -> None:
+        assert hasattr(QueryEngine, "from_binary")
+        assert hasattr(QueryEngine, "from_ghidra_export")
+
+
 def _read_requires_python(pyproject_data: dict[str, object]) -> str:
     project_raw = pyproject_data.get("project")
     assert isinstance(project_raw, dict), "pyproject.toml has no [project] table"

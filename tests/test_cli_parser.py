@@ -61,6 +61,7 @@ class TestTopLevelParser:
         assert set(subparsers_map) == {
             "analyze",
             "augment",
+            "binary",
             "entrypoints",
             "diff",
             "version",
@@ -144,6 +145,33 @@ class TestAnalyzeSubparser:
     ) -> None:
         action = _option(subparsers_map["analyze"], "--complexity")
         assert "-c" in action.option_strings
+
+
+class TestBinarySubparser:
+    def test_path_is_positional(self, subparsers_map: dict[str, argparse.ArgumentParser]) -> None:
+        action = _positional(subparsers_map["binary"], "path")
+        assert action.option_strings == []
+
+    def test_ghidra_install_dir_is_optional(
+        self, subparsers_map: dict[str, argparse.ArgumentParser]
+    ) -> None:
+        action = _option(subparsers_map["binary"], "--ghidra-install-dir")
+        assert action.default is None
+
+    def test_summary_has_short_flag_s(
+        self, subparsers_map: dict[str, argparse.ArgumentParser]
+    ) -> None:
+        action = _option(subparsers_map["binary"], "--summary")
+        assert "-s" in action.option_strings
+        assert action.default is False
+
+    def test_complexity_has_short_flag_c(
+        self, subparsers_map: dict[str, argparse.ArgumentParser]
+    ) -> None:
+        action = _option(subparsers_map["binary"], "--complexity")
+        assert "-c" in action.option_strings
+        assert action.type is int
+        assert action.default == 0
 
 
 class TestDiffSubparser:
@@ -239,6 +267,14 @@ class TestParseBehavior:
         assert args.after == "after/"
         assert args.repo == "."
         assert args.json is False
+
+    def test_binary_path_summary(self, parser: argparse.ArgumentParser) -> None:
+        args = parser.parse_args(["binary", "sample.bin", "--summary"])
+        assert args.command == "binary"
+        assert args.path == "sample.bin"
+        assert args.summary is True
+        assert args.ghidra_install_dir is None
+        assert args.complexity == 0
 
     def test_entrypoints_json_flag(self, parser: argparse.ArgumentParser) -> None:
         args = parser.parse_args(["entrypoints", "p", "--json"])

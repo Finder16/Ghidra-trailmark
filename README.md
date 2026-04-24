@@ -3,9 +3,9 @@
 [![CI](https://github.com/trailofbits/trailmark/actions/workflows/ci.yml/badge.svg)](https://github.com/trailofbits/trailmark/actions/workflows/ci.yml)
 [![Mutation Testing](https://github.com/trailofbits/trailmark/actions/workflows/mutation.yml/badge.svg)](https://github.com/trailofbits/trailmark/actions/workflows/mutation.yml)
 
-Parse source code into queryable graphs of functions, classes, calls, and semantic annotations for security analysis.
+Parse source code and Ghidra-analyzed binaries into queryable graphs of functions, classes, calls, and semantic annotations for security analysis.
 
-Trailmark uses [tree-sitter](https://tree-sitter.github.io/) for language-agnostic AST parsing and [rustworkx](https://www.rustworkx.org/) for high-performance graph traversal. The long-term vision is to combine this graph with mutation testing and coverage-guided fuzzing to identify gaps between assumptions and test coverage that are reachable from user input.
+Trailmark uses [tree-sitter](https://tree-sitter.github.io/) for source-language AST parsing, Ghidra headless for binary lifting, and [rustworkx](https://www.rustworkx.org/) for high-performance graph traversal. The long-term vision is to combine this graph with mutation testing and coverage-guided fuzzing to identify gaps between assumptions and test coverage that are reachable from user input.
 
 ## How It Works
 
@@ -14,7 +14,9 @@ Trailmark operates in three phases: **parse**, **index**, and **query**.
 ```mermaid
 flowchart TD
     A["Source Files"] --> B["tree-sitter Parser"]
+    G["Binary"] --> H["Ghidra Headless Harness"]
     B --> C["CodeGraph (nodes + edges)"]
+    H --> C
     C --> D["rustworkx GraphStore"]
     D --> E["QueryEngine"]
     E --> F["JSON / Summary / Hotspots"]
@@ -24,19 +26,25 @@ flowchart TD
     classDef data fill:#6f42c126,stroke:#6f42c1,color:#6f42c1
     classDef query fill:#ffc10726,stroke:#e6a817,color:#e6a817
 
-    class A src
-    class B parse
+    class A,G src
+    class B,H parse
     class C,D data
     class E,F query
 ```
 
-### 1. Parse
+### 1. Parse / Import
 
 A language-specific parser walks the directory, parses each file into a tree-sitter AST, and extracts:
 
 - **Nodes** &mdash; functions, methods, classes, structs, interfaces, traits, enums, modules, namespaces
 - **Edges** &mdash; calls, inheritance, implementation, containment, imports
 - **Metadata** &mdash; type annotations, cyclomatic complexity, branches, docstrings, exception types
+
+For binaries, Trailmark drives Ghidra's `analyzeHeadless` harness, runs a post-script export, and imports:
+
+- **Nodes** &mdash; discovered functions plus a module node for the binary
+- **Edges** &mdash; direct call edges resolved by Ghidra references
+- **Metadata** &mdash; entry addresses, end addresses, signatures, parameter types, binary entry points
 
 ### Supported Languages
 
@@ -250,6 +258,10 @@ trailmark version       # subcommand form
 # Full JSON graph (Python, the default)
 trailmark analyze path/to/project
 
+# Binary analysis via Ghidra headless
+trailmark binary path/to/target.bin --ghidra-install-dir /opt/ghidra
+trailmark binary path/to/target.bin --ghidra-install-dir /opt/ghidra --summary
+
 # Analyze a different language
 trailmark analyze --language rust path/to/project
 trailmark analyze --language javascript path/to/project
@@ -285,6 +297,27 @@ trailmark diff before/ after/
 trailmark diff --repo . main HEAD          # compare git refs
 trailmark diff --json before/ after/        # machine-readable output
 ```
+
+### Ghidra Headless Binary Analysis
+
+The `binary` subcommand uses Ghidra's `analyzeHeadless` harness to import a
+binary, run auto-analysis, and export a Trailmark-compatible graph. Point it at
+your Ghidra install root with `--ghidra-install-dir`, or set
+`GHIDRA_INSTALL_DIR` in the environment.
+
+Trailmark currently imports:
+
+- functions (including external/imported functions)
+- direct call edges resolved by Ghidra references
+- Ghidra-reported binary entry points
+- function signatures, parameter types, and addresses
+
+Binary nodes keep their addresses in `location.start_address` and
+`location.end_address`, while `location.file_path` points at the binary on disk.
+
+Binary support is currently best-effort. Import success depends on the target
+format matching a Ghidra loader, and entrypoint tagging currently reflects
+Ghidra-reported entry points, which can overapproximate exported functions.
 
 ### Entrypoint detection
 
@@ -369,15 +402,20 @@ See [docs/entrypoint-patterns.md](docs/entrypoint-patterns.md) for the full refe
 ```python
 from trailmark.parse import parse_directory, parse_file
 from trailmark.query.api import QueryEngine
+from trailmark.ghidra import analyze_binary, load_ghidra_export
 
 # Parse-only API: get the raw CodeGraph without building GraphStore/QueryEngine.
 graph = parse_file("path/to/file.py")
 graph = parse_directory("path/to/project", language="auto")
+graph = analyze_binary("path/to/target.bin", ghidra_install_dir="/opt/ghidra")
+graph = load_ghidra_export("trailmark_ghidra_export.json")
 
 # Single-language (default) or auto-detect + merge across all languages
 engine = QueryEngine.from_directory("path/to/project")
 engine = QueryEngine.from_directory("path/to/project", language="auto")
 engine = QueryEngine.from_directory("path/to/project", language="python,rust")
+engine = QueryEngine.from_binary("path/to/target.bin", ghidra_install_dir="/opt/ghidra")
+engine = QueryEngine.from_ghidra_export("trailmark_ghidra_export.json")
 
 # Direct neighbors
 engine.callers_of("handle_request")
